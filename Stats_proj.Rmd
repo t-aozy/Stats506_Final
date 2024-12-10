@@ -1,0 +1,277 @@
+---
+title: "Untitled"
+output: pdf_document
+date: "2024-12-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1 Define Population
+
+```{r}
+#' generate_sample
+#' @param x_p1 the mean of x
+#' @param x_p2 the standard deviation of x
+#' @param beta0 
+#' @param beta1 
+#' @param e the standard deviation of epsilon
+#' @param n sample size
+#' 
+#' @return a sample dataframe with n observations of (x,y) drawn from the population defined by yhe parameter
+generate_sample <- function(x_p1, x_p2, beta0, beta1, e, n){
+  x = rnorm(n, mean = x_p1, sd = x_p2)
+  sample <- data.frame(
+    x = x,
+    y = beta0 + beta1*x 
+              + rnorm(n, mean = 0, sd = e)
+  )
+  return(sample)
+}
+```
+
+## 2 Produce Outliers
+
+```{r}
+#' prod_outlier
+#' @param type type of outlier to produce
+#' @param sample sample used to generate outliers
+#' @param beta0 
+#' @param beta1 
+#' @param sde
+#'
+#' @return a vector contains x value and y value of outlier
+prod_outlier <- function(type, sample, beta0, beta1, sde){
+  if(type == 1){
+    x_outlier <- mean(sample$x) + 5*sd(sample$x) + runif(1, 
+                                                         min = -0.5*sd(sample$x),
+                                                         max = 0.5*sd(sample$x))
+    y_outlier <- beta0 + beta1*x_outlier + rnorm(1, mean = 0, sd = sde)
+  }
+  else if(type == 2){
+    x_outlier <- mean(sample$x) +  runif(1, min = -0.5*sd(sample$x),
+                                            max = 0.5*sd(sample$x))
+    y_outlier <- mean(sample$y) + 5*sd(sample$y) 
+  }
+  else if(type == 3){
+    x_outlier <- mean(sample$x) + 5*sd(sample$x) + runif(1, min = -0.5*sd(sample$x),
+                                                            max = 0.5*sd(sample$x))
+    y_outlier <- mean(sample$y) 
+  }
+  else{
+    stop("Wrong value for type.")
+  }
+  return(c(x_outlier, y_outlier))
+}
+```
+
+## 3 Monte Carlo Experiments
+
+```{r}
+#' influence
+#' 
+#' @param sample
+#' @param outlier
+#' 
+#' @return the estimated slopecoefficient from dataset with and without outlier
+influence <- function(sample, outlier){
+  new_sample <- rbind(sample, outlier)
+  mod_new <- lm(y~x, data = new_sample)
+  mod_ori <- lm(y~x, data = sample)
+  return(c(mod_new$coefficient[2],mod_ori$coefficient[2]))
+}
+```
+
+```{r}
+#' leverage
+#'
+#' @param sample 
+#' @param outlier 
+#'
+#' @return the leverage of the outlier
+leverage <- function(sample, outlier){
+  new_sample <- rbind(sample, outlier)
+  mod <- lm(y~x, data = new_sample)
+  dmatrix <- model.matrix(mod)
+  leverage <- t(dmatrix[nrow(new_sample),])%*%
+              solve((t(dmatrix)%*%dmatrix))%*%dmatrix[nrow(new_sample),]
+  return(leverage)
+}
+```
+
+```{r}
+#' montecarlo
+#'
+#' @param nsim times of monte carlo experiments
+#' @param x_p1 
+#' @param x_p2 
+#' @param beta0 
+#' @param beta1 
+#' @param e 
+#' @param n sample size
+#'
+#' @return one dataframe contain the leverage, estimated slope coefficient with and without outliers for 3 types of outliers in each montercarlo experiment
+montecarlo <- function(nsim, x_p1, x_p2, beta0, beta1, e, n){
+  res <- data.frame(
+    type1_l = rep(NA, nsim), type1_est = NA, type1_est_new = NA,
+    type2_l = NA, type2_est = NA, type2_est_new = NA,
+    type3_l = NA, type3_est = NA, type3_est_new = NA
+  )
+  for(i in 1:nsim){
+    sample <- generate_sample(x_p1, x_p2, beta0, beta1, e, n)
+    outlier1 <- prod_outlier(1, sample, beta0, beta1, e)
+    outlier2 <- prod_outlier(2, sample, beta0, beta1, e)
+    outlier3 <- prod_outlier(3, sample, beta0, beta1, e)
+    
+    res[i, "type1_l"] = leverage(sample, outlier1)
+    res[i, "type1_est"] = influence(sample, outlier1)[2]
+    res[i, "type1_est_new"] = influence(sample, outlier1)[1]
+    
+    res[i, "type2_l"] = leverage(sample, outlier2)
+    res[i, "type2_est"] = influence(sample, outlier2)[2]
+    res[i, "type2_est_new"] = influence(sample, outlier2)[1]
+    
+    res[i, "type3_l"] = leverage(sample, outlier3)
+    res[i, "type3_est"] = influence(sample, outlier3)[2]
+    res[i, "type3_est_new"] = influence(sample, outlier3)[1]
+  }
+  return(res)
+}
+
+```
+
+## 4 Result
+
+### 4.1 Plots of each type of outliers
+
+```{r}
+nsim = 1000
+x_p1 = 2
+x_p2 = sqrt(3)
+beta0 = 1
+beta1 = 3
+e = sqrt(2)
+n = 100
+
+#generate sample for visualization
+sample_visualize <- generate_sample(x_p1, x_p2, beta0, beta1, e, n)
+
+# produce outliers
+t1 <- prod_outlier(type = 1, sample = sample_visualize, 
+                   beta0 = beta0, beta1 = beta1, sde = e)
+             
+t2 <- prod_outlier(type = 2, sample = sample_visualize, 
+                   beta0 = beta0, beta1 = beta1, sde = e)
+
+t3 <- prod_outlier(type = 3, sample = sample_visualize, 
+                   beta0 = beta0, beta1 = beta1, sde = e)
+
+# visualization
+s1 <- rbind(sample_visualize, t1)
+s2 <- rbind(sample_visualize, t2)
+s3 <- rbind(sample_visualize, t3)
+
+par(mfrow = c(1, 3),mar = c(7, 5, 3, 1.5), oma = c(0, 0, 0, 0))
+
+plot(s1$x, s1$y, pch = 19, xlab = "", ylab = "y", 
+     cex.lab = 2, font.axis = 3, cex.axis = 1.2)
+points(t1[1], t1[2], col = "red", pch = 19)
+abline(lm(s1$y~s1$x), col = "blue")
+abline(lm(sample_visualize$y~sample_visualize$x))
+text(t1[1]-3, t1[2]-1, "Outlier1", col = "red")
+
+
+
+par(mar = c(7, 0.6, 3, 1.5))
+plot(s2$x, s2$y, pch = 19, xlab = "x", ylab = "", 
+     cex.lab = 2,  font.axis = 3, cex.axis = 1.2)
+points(t2[1], t2[2], col = "red", pch = 19)
+abline(lm(s2$y~s2$x), col = "blue")
+abline(lm(sample_visualize$y~sample_visualize$x))
+text(t2[1]-1, t2[2]-1, "Outlier2", col = "red")
+
+plot(s3$x, s3$y, pch = 19, xlab = "", ylab = "", 
+     font.axis = 3, cex.axis = 1.2)
+points(t3[1], t3[2], col = "red", pch = 19)
+abline(lm(s3$y~s3$x), col = "blue")
+abline(lm(sample_visualize$y~sample_visualize$x))
+text(t3[1]-1, t3[2]-1, "Outlier3", col = "red")
+
+
+
+```
+
+### 4.2 Monte Carlo Experiment
+
+```{r}
+res <- montecarlo(nsim, x_p1, x_p2, beta0, beta1, e, n)
+```
+
+```{r}
+# Calculate influence
+res$influence_1 <- abs(res$type1_est - res$type1_est_new)
+res$influence_2 <- abs(res$type2_est - res$type2_est_new)
+res$influence_3 <- abs(res$type3_est - res$type3_est_new)
+
+# visualize the influence distribution of outlier1 and outlier3
+library(ggplot2)
+p1 <- ggplot(res, aes(x = influence_1))+
+      xlim(0, 0.7) +
+      geom_histogram(aes(y = ..density..), 
+                     color = "blue", 
+                     fill = "white", 
+                     bins = 50, 
+                     size = 1)+
+      geom_density(alpha = .3, 
+                   fill = "blue", 
+                   size = 1)+
+  
+      geom_histogram(aes(x = influence_3, y = ..density..),
+                     color = "#3C5387", 
+                     fill = "white", 
+                     alpha = 0.6 , 
+                     bins = 50,
+                     size = 1)+
+      geom_density(aes(x = influence_3, y = ..density..),
+                   alpha = .3, color = "#3C5387", fill = "#3C5387", size = 1)+
+  
+      geom_histogram(aes(x = influence_2, y = ..density..),
+                     color = "red", fill = "white", 
+                     alpha = 0.5, bins = 50,
+                     size = 1,
+                     position = "identity")+
+      geom_density(aes(x = influence_2, y = ..density..),
+                   alpha = .3, color = "red", fill = "red", size = 1)+
+      
+      theme_bw()+
+      theme(panel.border = element_blank(), axis.line = element_line(size = 0.7))+
+      scale_y_continuous(expand = c(0, 0))+
+      scale_x_continuous(breaks = seq(0, 0.7, 0.05))+
+      xlab("INFLUENCE")+
+      ylab("DENSITY")+
+      annotate("text", x = 0.1, 
+           y = 17, label = "Outlier1", color = "black")+
+      annotate("text", x = 0.6, 
+           y = 7.5, label = "Outlier3", color = "black")+
+      annotate("text", x = 0.15, 
+           y = 7.5, label = "Outlier2", color = "black")
+
+p1
+
+```
+
+```{r}
+# Summarize result
+## 1 range of leverage of 3 types of outliers 
+summary(res$type1_l)
+summary(res$type2_l)
+summary(res$type3_l)
+
+## 2 range of influence of 3 types of outliers
+summary(res$influence_1)
+summary(res$influence_2)
+summary(res$influence_3)
+
+
+```
